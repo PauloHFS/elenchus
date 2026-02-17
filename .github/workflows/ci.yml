@@ -1,0 +1,82 @@
+name: GOTH Stack CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Quality, Security & Performance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true # Faz cache de go mod e build cache padrão
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install NPM dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Generate Code
+        run: |
+          go tool templ generate
+          go tool sqlc generate
+          go tool swag init -g internal/cmd/server.go
+          npx @tailwindcss/cli -i ./web/static/assets/css/input.css -o ./web/static/assets/styles.css --minify
+
+      - name: Verify Generated Code (Drift Check)
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Error: Generated files are out of sync with committed code."
+            echo "Please run 'make generate' locally and commit the changes."
+            git status
+            git diff
+            exit 1
+          fi
+
+      - name: Check Formatting
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "The following files are not formatted:"
+            gofmt -s -l .
+            exit 1
+          fi
+
+      - name: Golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+          install-mode: goinstall
+
+      - name: Vulnerability Check (govulncheck)
+        run: go tool govulncheck ./...
+
+      - name: Run Unit & Integration Tests
+        run: go test -tags fts5 -v -race -coverprofile=coverage.txt ./internal/... ./test/...
+
+      - name: Run Performance Benchmarks
+        run: go test -tags fts5 -bench=. -benchmem -run=^# ./test/benchmarks/...
+
+      - name: Build Application
+        run: go build -tags fts5 -ldflags="-s -w" -v -o bin/goth ./cmd/api
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: goth-binary
+          path: bin/goth
+          retention-days: 5

@@ -1,0 +1,17 @@
+package view
+
+import "fmt"
+
+templ PaginationControls(p Pagination, baseURL string) {
+	if p.TotalPages() > 1 {
+		<div class="flex justify-center mt-4 space-x-2">
+			if p.HasPrevious() {
+				<a href={ templ.SafeURL(fmt.Sprintf("%s?page=%d", baseURL, p.PreviousPage())) } class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Anterior</a>
+			}
+			<span class="px-4 py-2">Página { fmt.Sprintf("%d", p.CurrentPage) } de { fmt.Sprintf("%d", p.TotalPages()) }</span>
+			if p.HasNext() {
+				<a href={ templ.SafeURL(fmt.Sprintf("%s?page=%d", baseURL, p.NextPage())) } class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Próxima</a>
+			}
+		</div>
+	}
+}

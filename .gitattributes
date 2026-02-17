@@ -1,0 +1,7 @@
+# Mark generated files to hide them from GitHub diffs by default
+*_templ.go linguist-generated=true
+*.sql.go linguist-generated=true
+docs/docs.go linguist-generated=true
+docs/swagger.* linguist-generated=true
+web/static/assets/styles.css linguist-generated=true
+web/static/assets/js/*.min.js linguist-generated=true

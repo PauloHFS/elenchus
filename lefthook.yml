@@ -1,0 +1,11 @@
+pre-push:
+  parallel: true
+  commands:
+    generate:
+      run: make generate
+    format:
+      run: gofmt -s -w .
+    vuln-check:
+      run: go tool govulncheck ./...
+    test:
+      run: make test

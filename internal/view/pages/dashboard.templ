@@ -1,0 +1,83 @@
+package pages
+
+import (
+	"github.com/PauloHFS/goth/internal/db"
+	"github.com/PauloHFS/goth/internal/view/layout"
+	"github.com/PauloHFS/goth/internal/view"
+)
+
+templ Dashboard(user db.User, users []db.User, pag view.Pagination) {
+	@layout.Base("Dashboard", db.Tenant{Name: "GOTH Stack"}) {
+		<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+			<div class="px-4 py-6 sm:px-0">
+				<div class="flex items-center space-x-4 mb-6">
+					if user.AvatarUrl.Valid {
+						<img src={ user.AvatarUrl.String } class="h-16 w-16 rounded-full object-cover border-2 border-indigo-500"/>
+					} else {
+						<div class="h-16 w-16 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">?</div>
+					}
+					<div>
+						<h1 class="text-3xl font-bold text-gray-900">Olá, { user.Email }!</h1>
+						<form action="/profile/avatar" method="POST" enctype="multipart/form-data" class="mt-2">
+							<input type="hidden" name="gorilla.csrf.Token" value={ view.CSRFToken(ctx) } />
+							<input type="file" name="avatar" accept="image/*" class="text-xs text-gray-500 file:mr-4 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" onchange="this.form.submit()"/>
+						</form>
+					</div>
+				</div>
+				
+				<!-- SSE Container -->
+				<div hx-ext="sse" sse-connect="/events" class="mt-4">
+					<div sse-swap="job_completed" hx-swap="afterbegin"></div>
+				</div>
+
+				<div class="mt-8">
+					<div class="flex justify-between items-center mb-4">
+						<h2 class="text-xl font-semibold">Usuários do Sistema</h2>
+						<form action="/dashboard" method="GET" class="flex space-x-2">
+							<input type="text" name="search" placeholder="Buscar usuário..." 
+								class="border rounded p-2 text-sm"
+								hx-get="/dashboard" hx-target="body" hx-push-url="true"
+								hx-trigger="keyup changed delay:500ms"/>
+						</form>
+					</div>
+					<div class="bg-white shadow overflow-hidden sm:rounded-md border">
+						<ul class="divide-y divide-gray-200">
+							for _, u := range users {
+								<li class="px-4 py-4 sm:px-6">
+									<div class="flex items-center justify-between">
+										<p class="text-sm font-medium text-indigo-600 truncate">{ u.Email }</p>
+										<div class="ml-2 flex-shrink-0 flex">
+											<p class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Ativo</p>
+										</div>
+									</div>
+								</li>
+							}
+						</ul>
+					</div>
+					
+					@view.PaginationControls(pag, "/dashboard")
+				</div>
+			</div>
+		</div>
+
+		<!-- Template para a notificação SSE (será injetado via swap) -->
+		<template id="job-notification-template">
+			<div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" 
+				class="mb-2 p-4 bg-green-100 border-l-4 border-green-500 text-green-700 shadow-md flex justify-between">
+				<span>Job concluído com sucesso!</span>
+				<button @click="show = false">&times;</button>
+			</div>
+		</template>
+
+		<script>
+			// Escuta o evento SSE e injeta o template usando Alpine.js ou DOM puro
+			document.body.addEventListener('htmx:sseMessage', function(e) {
+				if (e.detail.type === 'job_completed') {
+					const template = document.getElementById('job-notification-template');
+					const clone = template.content.cloneNode(true);
+					e.target.appendChild(clone);
+				}
+			});
+		</script>
+	}
+}

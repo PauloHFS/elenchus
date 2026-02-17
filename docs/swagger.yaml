@@ -1,0 +1,49 @@
+basePath: /
+definitions:
+  webhook.webhookInput:
+    properties:
+      id:
+        type: string
+    required:
+    - id
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API do boilerplate GOTH Stack (Go, Templ, HTMX).
+  title: GOTH Stack API
+  version: "1.0"
+paths:
+  /webhooks/{source}:
+    post:
+      consumes:
+      - application/json
+      description: Recebe um payload de webhook, persiste no banco e enfileira um
+        job.
+      parameters:
+      - description: 'Fonte do webhook (ex: stripe)'
+        in: path
+        name: source
+        required: true
+        type: string
+      - description: Payload do webhook
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/webhook.webhookInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+      summary: Receber Webhook
+      tags:
+      - webhooks
+swagger: "2.0"
