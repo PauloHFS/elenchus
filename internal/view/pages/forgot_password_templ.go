@@ -9,9 +9,9 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/view"
-	"github.com/PauloHFS/goth/internal/view/layout"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/view"
+	"github.com/PauloHFS/elenchus/internal/view/layout"
 )
 
 func ForgotPassword(message string) templ.Component {

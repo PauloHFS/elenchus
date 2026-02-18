@@ -1,10 +1,10 @@
 package pages
 
 import (
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/view"
-	"github.com/PauloHFS/goth/internal/view/layout"
-	"github.com/PauloHFS/goth/internal/i18n"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/view"
+	"github.com/PauloHFS/elenchus/internal/view/layout"
+	"github.com/PauloHFS/elenchus/internal/i18n"
 )
 
 templ Login(errorMessage string) {
@@ -17,7 +17,7 @@ templ Login(errorMessage string) {
 
 			<div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
 				<form class="space-y-6" action="/login" method="POST">
-					<input type="hidden" name="csrf_token" value={ view.CSRFToken(ctx) } />
+					<input type="hidden" name="gorilla.csrf.Token" value={ view.CSRFToken(ctx) } />
 					if errorMessage != "" {
 						<div class="rounded-md bg-red-50 p-4 mb-4">
 							<p class="text-sm text-red-700">{ errorMessage }</p>

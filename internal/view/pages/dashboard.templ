@@ -1,40 +1,68 @@
 package pages
 
 import (
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/view/layout"
-	"github.com/PauloHFS/goth/internal/view"
+	"fmt"
+
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/view/layout"
+	"github.com/PauloHFS/elenchus/internal/view"
 )
 
 templ Dashboard(user db.User, users []db.User, pag view.Pagination) {
 	@layout.Base("Dashboard", db.Tenant{Name: "GOTH Stack"}) {
 		<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
 			<div class="px-4 py-6 sm:px-0">
-				<div class="flex items-center space-x-4 mb-6">
-					if user.AvatarUrl.Valid {
-						<img src={ user.AvatarUrl.String } class="h-16 w-16 rounded-full object-cover border-2 border-indigo-500"/>
-					} else {
-						<div class="h-16 w-16 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">?</div>
-					}
-					<div>
-						<h1 class="text-3xl font-bold text-gray-900">Olá, { user.Email }!</h1>
-						<form action="/profile/avatar" method="POST" enctype="multipart/form-data" class="mt-2">
-							<input type="hidden" name="gorilla.csrf.Token" value={ view.CSRFToken(ctx) } />
-							<input type="file" name="avatar" accept="image/*" class="text-xs text-gray-500 file:mr-4 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" onchange="this.form.submit()"/>
-						</form>
+				<div class="flex items-center justify-between mb-6">
+					<div class="flex items-center space-x-4">
+						if user.AvatarUrl.Valid {
+							<img src={ user.AvatarUrl.String } class="h-16 w-16 rounded-full object-cover border-2 border-indigo-500"/>
+						} else {
+							<div class="h-16 w-16 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">?</div>
+						}
+						<div>
+							<h1 class="text-3xl font-bold text-gray-900">Olá, { user.Email }!</h1>
+							<form action="/profile/avatar" method="POST" enctype="multipart/form-data" class="mt-2">
+								<input type="hidden" name="gorilla.csrf.Token" value={ view.CSRFToken(ctx) } />
+								<input type="file" name="avatar" accept="image/*" class="text-xs text-gray-500 file:mr-4 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" onchange="this.form.submit()"/>
+							</form>
+						</div>
+					</div>
+					
+					<!-- Quick Actions -->
+					<div class="flex space-x-3">
+						<button
+							hx-post="/dashboard/test-job"
+							hx-target="#job-status"
+							hx-swap="innerHTML"
+							class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 shadow-sm">
+							<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+							</svg>
+							Testar Job Async
+						</button>
+						<a href="/evaluations" 
+							class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm">
+							<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+							</svg>
+							Avaliações Elenchus
+						</a>
 					</div>
 				</div>
-				
-				<!-- SSE Container -->
-				<div hx-ext="sse" sse-connect="/events" class="mt-4">
-					<div sse-swap="job_completed" hx-swap="afterbegin"></div>
+
+				<!-- Job Status Container com SSE -->
+				<div id="job-status" class="mb-6"
+					hx-ext="sse"
+					sse-connect={ "/sse?type=user&id=" + fmt.Sprint(user.ID) }
+					sse-swap="job_progress,job_completed">
+					<!-- SSE events swap content here -->
 				</div>
 
 				<div class="mt-8">
 					<div class="flex justify-between items-center mb-4">
 						<h2 class="text-xl font-semibold">Usuários do Sistema</h2>
 						<form action="/dashboard" method="GET" class="flex space-x-2">
-							<input type="text" name="search" placeholder="Buscar usuário..." 
+							<input type="text" name="search" placeholder="Buscar usuário..."
 								class="border rounded p-2 text-sm"
 								hx-get="/dashboard" hx-target="body" hx-push-url="true"
 								hx-trigger="keyup changed delay:500ms"/>
@@ -54,30 +82,34 @@ templ Dashboard(user db.User, users []db.User, pag view.Pagination) {
 							}
 						</ul>
 					</div>
-					
+
 					@view.PaginationControls(pag, "/dashboard")
 				</div>
 			</div>
 		</div>
+	}
+}
 
-		<!-- Template para a notificação SSE (será injetado via swap) -->
-		<template id="job-notification-template">
-			<div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" 
-				class="mb-2 p-4 bg-green-100 border-l-4 border-green-500 text-green-700 shadow-md flex justify-between">
-				<span>Job concluído com sucesso!</span>
-				<button @click="show = false">&times;</button>
+// JobStatusNotification mostra status do job assíncrono
+templ JobStatusNotification(status string, message string) {
+	if status == "running" {
+		<div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+			<div class="flex items-center">
+				<svg class="animate-spin h-5 w-5 text-blue-700 mr-3" fill="none" viewBox="0 0 24 24">
+					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+					<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+				</svg>
+				<p class="text-blue-700 font-medium">{ message }</p>
 			</div>
-		</template>
-
-		<script>
-			// Escuta o evento SSE e injeta o template usando Alpine.js ou DOM puro
-			document.body.addEventListener('htmx:sseMessage', function(e) {
-				if (e.detail.type === 'job_completed') {
-					const template = document.getElementById('job-notification-template');
-					const clone = template.content.cloneNode(true);
-					e.target.appendChild(clone);
-				}
-			});
-		</script>
+		</div>
+	} else if status == "completed" {
+		<div class="bg-green-50 border-l-4 border-green-500 p-4 rounded">
+			<div class="flex items-center">
+				<svg class="h-5 w-5 text-green-700 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+				</svg>
+				<p class="text-green-700 font-medium">{ message }</p>
+			</div>
+		</div>
 	}
 }

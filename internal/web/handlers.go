@@ -15,14 +15,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/PauloHFS/goth/internal/config"
-	"github.com/PauloHFS/goth/internal/contextkeys"
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/logging"
-	"github.com/PauloHFS/goth/internal/middleware"
-	"github.com/PauloHFS/goth/internal/routes"
-	"github.com/PauloHFS/goth/internal/view"
-	"github.com/PauloHFS/goth/internal/view/pages"
+	"github.com/PauloHFS/elenchus/internal/config"
+	"github.com/PauloHFS/elenchus/internal/contextkeys"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/logging"
+	"github.com/PauloHFS/elenchus/internal/middleware"
+	"github.com/PauloHFS/elenchus/internal/policies"
+	"github.com/PauloHFS/elenchus/internal/routes"
+	"github.com/PauloHFS/elenchus/internal/service"
+	"github.com/PauloHFS/elenchus/internal/sse"
+	"github.com/PauloHFS/elenchus/internal/view"
+	"github.com/PauloHFS/elenchus/internal/view/pages"
 	"github.com/a-h/templ"
 	"github.com/alexedwards/scs/v2"
 	"golang.org/x/crypto/bcrypt"
@@ -34,6 +37,7 @@ type HandlerDeps struct {
 	SessionManager *scs.SessionManager
 	Logger         *slog.Logger
 	Config         *config.Config
+	SSEBroker      *sse.Broker
 }
 
 // AppHandler é um tipo customizado que permite retornar erros dos handlers
@@ -78,6 +82,17 @@ func RegisterRoutes(mux *http.ServeMux, deps HandlerDeps) {
 	// Protected Routes
 	mux.Handle("GET "+routes.Dashboard, middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleDashboard)))
 	mux.Handle("POST /profile/avatar", middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleAvatarUpload)))
+	mux.Handle("POST /dashboard/test-job", middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleTestJob)))
+
+	// Evaluation Routes
+	mux.Handle("GET "+routes.EvaluationsPage, middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleEvaluationsPage)))
+	mux.Handle("POST "+routes.EvaluationStart, middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleStartEvaluation)))
+	mux.Handle("GET /sse", deps.SSEBroker.Handler()) // SSE endpoint for HTMX
+	mux.Handle("GET "+routes.EvaluationResult, middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleLoadEvaluationResult)))
+	mux.Handle("GET "+routes.EvaluationsList, middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleListEvaluations)))
+	mux.Handle("GET /evaluations/history", middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleListEvaluations)))
+	mux.Handle("GET /evaluations/active", middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleActiveEvaluations)))
+	mux.Handle("GET /evaluations/status/{id}", middleware.RequireAuth(deps.SessionManager, deps.Queries, Handle(deps, handleEvaluationStatus)))
 
 	// Public Routes
 	mux.HandleFunc("GET "+routes.Home, func(w http.ResponseWriter, r *http.Request) {
@@ -377,6 +392,53 @@ func handleDashboard(deps HandlerDeps, w http.ResponseWriter, r *http.Request) e
 	return nil
 }
 
+// handleTestJob inicia um job assíncrono de teste que notifica via SSE
+func handleTestJob(deps HandlerDeps, w http.ResponseWriter, r *http.Request) error {
+	user, ok := r.Context().Value(contextkeys.UserContextKey).(db.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+
+	// Retorna status inicial
+	w.Header().Set("Content-Type", "text/html")
+	templ.Handler(pages.JobStatusNotification("running", "Job iniciado... processando em background")).ServeHTTP(w, r)
+
+	// Inicia job em background
+	go func() {
+		// Envia progresso via SSE
+		deps.SSEBroker.SendHTML("user", fmt.Sprint(user.ID), "job_progress",
+			`<div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded mb-2">
+				<div class="flex items-center">
+					<svg class="animate-spin h-5 w-5 text-blue-700 mr-3" fill="none" viewBox="0 0 24 24">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+					</svg>
+					<p class="text-blue-700 font-medium">Processando... 50%</p>
+				</div>
+			</div>`)
+
+		// Simula processamento (5 segundos)
+		time.Sleep(5 * time.Second)
+
+		// Envia notificação de conclusão via SSE
+		deps.SSEBroker.SendHTML("user", fmt.Sprint(user.ID), "job_completed",
+			`<div class="bg-green-50 border-l-4 border-green-500 p-4 rounded mb-2">
+				<div class="flex items-center">
+					<svg class="h-5 w-5 text-green-700 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+					</svg>
+					<p class="text-green-700 font-medium">✅ Job completado com sucesso! Processamento levou ~5 segundos.</p>
+				</div>
+			</div>`)
+
+		// Log para debug
+		fmt.Printf("✅ Test job completed for user %d\n", user.ID)
+	}()
+
+	return nil
+}
+
 func handleAvatarUpload(deps HandlerDeps, w http.ResponseWriter, r *http.Request) error {
 	user, ok := r.Context().Value(contextkeys.UserContextKey).(db.User)
 	if !ok {
@@ -429,4 +491,297 @@ func handleAvatarUpload(deps HandlerDeps, w http.ResponseWriter, r *http.Request
 
 	http.Redirect(w, r, routes.Dashboard, http.StatusSeeOther)
 	return nil
+}
+
+// --- Evaluation Handlers ---
+
+func handleEvaluationsPage(deps HandlerDeps, w http.ResponseWriter, r *http.Request) error {
+	user, ok := r.Context().Value(contextkeys.UserContextKey).(db.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+
+	templ.Handler(pages.Evaluations(user)).ServeHTTP(w, r)
+	return nil
+}
+
+func handleStartEvaluation(deps HandlerDeps, w http.ResponseWriter, r *http.Request) error {
+	prompt := r.FormValue("prompt")
+	if prompt == "" {
+		http.Error(w, "Prompt é obrigatório", http.StatusBadRequest)
+		return nil
+	}
+
+	user, ok := r.Context().Value(contextkeys.UserContextKey).(db.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+
+	evalService, err := service.NewEvaluationService(deps.Queries, deps.SSEBroker)
+	if err != nil {
+		return fmt.Errorf("failed to create evaluation service: %w", err)
+	}
+	evalID, err := evalService.StartEvaluation(r.Context(), user.TenantID, user.ID, prompt)
+	if err != nil {
+		return fmt.Errorf("failed to start evaluation: %w", err)
+	}
+
+	// Return HTML with SSE connection using HTMX SSE extension
+	w.Header().Set("Content-Type", "text/html")
+	templ.Handler(pages.SSEEvaluationContainer(evalID)).ServeHTTP(w, r)
+	return nil
+}
+
+// handleLoadEvaluationResult renders the final evaluation result
+func handleLoadEvaluationResult(deps HandlerDeps, w http.ResponseWriter, r *http.Request) error {
+	evalID := r.PathValue("id")
+	if evalID == "" {
+		http.Error(w, "ID inválido", http.StatusBadRequest)
+		return nil
+	}
+
+	user, ok := r.Context().Value(contextkeys.UserContextKey).(db.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+
+	// Check if evaluation exists
+	eval, err := deps.Queries.GetEvaluationByID(r.Context(), evalID)
+	if err != nil {
+		return fmt.Errorf("failed to get evaluation: %w", err)
+	}
+
+	// Policy check: User can only access evaluations from their tenant
+	if eval.TenantID != user.TenantID {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+
+	// Check if still processing or retrying
+	if eval.Status == "pending" || eval.Status == "processing" || eval.Status == "retrying" {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4"
+			hx-get="/htmx/evaluations/`+evalID+`/result"
+			hx-trigger="load delay:3s"
+			hx-swap="outerHTML">
+			<div class="flex items-center">
+				<svg class="animate-spin h-5 w-5 text-yellow-800 mr-3" fill="none" viewBox="0 0 24 24">
+					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+					<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+				</svg>
+				<p class="text-yellow-800">Avaliação ainda processando...</p>
+			</div>
+			<p class="text-sm text-yellow-700 mt-2">Status: { eval.Status }</p>
+		</div>`)
+		return nil
+	}
+
+	// Check if failed
+	if eval.Status == "failed" {
+		w.Header().Set("Content-Type", "text/html")
+		errorMsg := "Avaliação falhou. Tente novamente."
+		if eval.ErrorMessage.Valid && eval.ErrorMessage.String != "" {
+			errorMsg = eval.ErrorMessage.String
+		}
+		templ.Handler(pages.SSEError(errorMsg)).ServeHTTP(w, r)
+		return nil
+	}
+
+	// Completed - get iterations and audit
+	iterations, err := deps.Queries.GetIterationsByEvaluation(r.Context(), evalID)
+	if err != nil {
+		return fmt.Errorf("failed to get iterations: %w", err)
+	}
+
+	audit, err := deps.Queries.GetAuditByEvaluation(r.Context(), evalID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// Audit not ready yet, show waiting message
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4"
+				hx-get="/htmx/evaluations/`+evalID+`/result"
+				hx-trigger="load delay:2s"
+				hx-swap="outerHTML">
+				<p class="text-yellow-800">⏳ Finalizando auditoria...</p>
+			</div>`)
+			return nil
+		}
+		return fmt.Errorf("failed to get audit: %w", err)
+	}
+
+	// Render result using templ component
+	w.Header().Set("Content-Type", "text/html")
+	templ.Handler(pages.EvaluationResult(eval, iterations, audit)).ServeHTTP(w, r)
+	return nil
+}
+
+// handleListEvaluations lista as avaliações do usuário
+func handleListEvaluations(deps HandlerDeps, w http.ResponseWriter, r *http.Request) error {
+	user, ok := r.Context().Value(contextkeys.UserContextKey).(db.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+
+	// Policy check: User can only list evaluations from their tenant
+	if err := policies.CheckTenantAccess(r.Context(), user, user.TenantID); err != nil {
+		return fmt.Errorf("access denied: %w", err)
+	}
+
+	evaluations, err := deps.Queries.ListEvaluationsPaginated(r.Context(), db.ListEvaluationsPaginatedParams{
+		TenantID: user.TenantID,
+		UserID:   user.ID,
+		Limit:    10,
+		Offset:   int64((page - 1) * 10),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list evaluations: %w", err)
+	}
+
+	total, err := deps.Queries.CountEvaluations(r.Context(), db.CountEvaluationsParams{
+		TenantID: user.TenantID,
+		UserID:   user.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to count evaluations: %w", err)
+	}
+
+	// Renderizar lista
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, `<div class="evaluations-list">`)
+	fmt.Fprintf(w, `<h2>Suas Avaliações (%d)</h2>`, total)
+	for _, eval := range evaluations {
+		statusClass := "status-" + eval.Status
+		fmt.Fprintf(w, `<div class="evaluation-item %s"><a href="/htmx/evaluations/%s/result">%s - %s</a></div>`,
+			statusClass, eval.ID, eval.CreatedAt.Time.Format("2006-01-02 15:04"), eval.Status)
+	}
+	fmt.Fprint(w, `</div>`)
+
+	return nil
+}
+
+// handleActiveEvaluations retorna avaliações ativas/em retry do usuário
+func handleActiveEvaluations(deps HandlerDeps, w http.ResponseWriter, r *http.Request) error {
+	user, ok := r.Context().Value(contextkeys.UserContextKey).(db.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+
+	// Policy check
+	if err := policies.CheckTenantAccess(r.Context(), user, user.TenantID); err != nil {
+		return fmt.Errorf("access denied: %w", err)
+	}
+
+	// Busca avaliações ativas (processing ou retrying)
+	evaluations, err := deps.Queries.ListEvaluationsByStatus(r.Context(), db.ListEvaluationsByStatusParams{
+		TenantID: user.TenantID,
+		UserID:   user.ID,
+		Status:   "processing",
+		Status_2: "retrying",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list active evaluations: %w", err)
+	}
+
+	if len(evaluations) == 0 {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(""))
+		return nil
+	}
+
+	// Renderiza lista de avaliações ativas
+	w.Header().Set("Content-Type", "text/html")
+	templ.Handler(pages.ActiveEvaluationsList(evaluations)).ServeHTTP(w, r)
+	return nil
+}
+
+// handleEvaluationStatus verifica status de uma avaliação específica e retorna componente apropriado
+func handleEvaluationStatus(deps HandlerDeps, w http.ResponseWriter, r *http.Request) error {
+	user, ok := r.Context().Value(contextkeys.UserContextKey).(db.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+
+	evalID := r.PathValue("id")
+	if evalID == "" {
+		http.Error(w, "ID inválido", http.StatusBadRequest)
+		return nil
+	}
+
+	// Policy check: verificar se usuário pode acessar esta avaliação
+	eval, err := deps.Queries.GetEvaluationByID(r.Context(), evalID)
+	if err != nil {
+		return fmt.Errorf("failed to get evaluation: %w", err)
+	}
+
+	if eval.TenantID != user.TenantID {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil
+	}
+
+	// Verifica status atual
+	switch eval.Status {
+	case "retrying":
+		// Busca checkpoint pra ver info de retry
+		checkpoint, err := deps.Queries.GetCheckpoint(r.Context(), evalID)
+		if err != nil {
+			// Sem checkpoint, mostra status genérico
+			w.Header().Set("Content-Type", "text/html")
+			templ.Handler(pages.SSERetrying(evalID, eval.RetryCount, "")).ServeHTTP(w, r)
+			return nil
+		}
+
+		nextRetryAt := ""
+		if checkpoint.NextRetryAt.Valid {
+			nextRetryAt = checkpoint.NextRetryAt.Time.Format("15:04:05")
+		}
+
+		w.Header().Set("Content-Type", "text/html")
+		templ.Handler(pages.SSERetrying(evalID, checkpoint.RetryCount, nextRetryAt)).ServeHTTP(w, r)
+		return nil
+
+	case "processing":
+		// Ainda tá processando, retorna status de processamento
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+			<p class="text-yellow-800">⏳ Processando avaliação...</p>
+		</div>`)
+		return nil
+
+	case "completed":
+		// Completou! Retorna resultado
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="bg-green-50 border border-green-200 rounded-lg p-4"
+			hx-get="/htmx/evaluations/`+evalID+`/result"
+			hx-trigger="load"
+			hx-swap="outerHTML">
+			<p class="text-green-800">✅ Avaliação completa! Carregando resultado...</p>
+		</div>`)
+		return nil
+
+	case "failed":
+		// Falhou
+		w.Header().Set("Content-Type", "text/html")
+		errorMsg := "Avaliação falhou. Tente novamente."
+		if eval.ErrorMessage.Valid && eval.ErrorMessage.String != "" {
+			errorMsg = eval.ErrorMessage.String
+		}
+		templ.Handler(pages.SSEError(errorMsg)).ServeHTTP(w, r)
+		return nil
+
+	default:
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(""))
+		return nil
+	}
 }

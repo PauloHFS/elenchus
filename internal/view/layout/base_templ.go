@@ -9,8 +9,8 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/view"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/view"
 )
 
 func Base(title string, tenant db.Tenant) templ.Component {
@@ -60,7 +60,7 @@ func Base(title string, tenant db.Tenant) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><script src=\"/assets/js/htmx.min.js\"></script><script src=\"https://unpkg.com/htmx-ext-sse@2.2.2/sse.js\"></script><script defer src=\"/assets/js/alpine.min.js\"></script><link href=\"/assets/styles.css\" rel=\"stylesheet\"><script>\n    document.body.addEventListener('htmx:configRequest', (event) => {\n      event.detail.headers['X-CSRF-Token'] = document.querySelector('meta[name=\"csrf-token\"]').content;\n    });\n  </script><style>\n    :root {\n      /* Exemplo: tenant.Settings deve ser parseado no middleware */\n      --color-primary: #3b82f6;\n      --color-bg: #ffffff;\n    }\n  </style></head><body class=\"bg-[var(--color-bg)] text-gray-900\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><script src=\"/assets/js/htmx.min.js\"></script><script src=\"/assets/js/sse.js\"></script><script defer src=\"/assets/js/alpine.min.js\"></script><link href=\"/assets/styles.css\" rel=\"stylesheet\"><script>\n    (function() {\n      const setupCSRF = (event) => {\n        const csrfMeta = document.querySelector('meta[name=\"csrf-token\"]');\n        if (csrfMeta) {\n          event.detail.headers['X-CSRF-Token'] = csrfMeta.content;\n        }\n      };\n\n      if (document.body) {\n        document.body.addEventListener('htmx:configRequest', setupCSRF);\n      } else {\n        document.addEventListener('DOMContentLoaded', () => {\n          document.body.addEventListener('htmx:configRequest', setupCSRF);\n        });\n      }\n    })();\n  </script><style>\n    :root {\n      --color-primary: #3b82f6;\n      --color-bg: #ffffff;\n    }\n  </style></head><body class=\"bg-[var(--color-bg)] text-gray-900\" hx-ext=\"sse\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

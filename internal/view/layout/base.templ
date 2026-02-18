@@ -1,8 +1,8 @@
 package layout
 
 import (
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/view"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/view"
 )
 
 templ Base(title string, tenant db.Tenant) {
@@ -13,24 +13,36 @@ templ Base(title string, tenant db.Tenant) {
   <title>{ title }</title>
   <meta name="csrf-token" content={ view.CSRFToken(ctx) } />
   <script src="/assets/js/htmx.min.js"></script>
-  <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+  <script src="/assets/js/sse.js"></script>
   <script defer src="/assets/js/alpine.min.js"></script>
   <link href="/assets/styles.css" rel="stylesheet" />
   <script>
-    document.body.addEventListener('htmx:configRequest', (event) => {
-      event.detail.headers['X-CSRF-Token'] = document.querySelector('meta[name="csrf-token"]').content;
-    });
+    (function() {
+      const setupCSRF = (event) => {
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        if (csrfMeta) {
+          event.detail.headers['X-CSRF-Token'] = csrfMeta.content;
+        }
+      };
+
+      if (document.body) {
+        document.body.addEventListener('htmx:configRequest', setupCSRF);
+      } else {
+        document.addEventListener('DOMContentLoaded', () => {
+          document.body.addEventListener('htmx:configRequest', setupCSRF);
+        });
+      }
+    })();
   </script>
   <style>
     :root {
-      /* Exemplo: tenant.Settings deve ser parseado no middleware */
       --color-primary: #3b82f6;
       --color-bg: #ffffff;
     }
   </style>
 </head>
 
-<body class="bg-[var(--color-bg)] text-gray-900">
+<body class="bg-[var(--color-bg)] text-gray-900" hx-ext="sse">
   { children... }
 </body>
 

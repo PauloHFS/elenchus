@@ -1,0 +1,462 @@
+package pages
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/view/layout"
+	"github.com/PauloHFS/elenchus/internal/view"
+)
+
+templ Evaluations(user db.User) {
+	@layout.Base("Avaliações - Elenchus", db.Tenant{Name: "Elenchus"}) {
+		<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+			<div class="px-4 py-6 sm:px-0">
+				<div class="mb-8">
+					<div class="flex items-center justify-between">
+						<div>
+							<h1 class="text-3xl font-bold text-gray-900 mb-2">Motor de Auditoria Elenchus</h1>
+							<p class="text-gray-600">Submeta prompts técnicos para validação via protocolo de estresse interrogatório.</p>
+						</div>
+						<a href="/dashboard" class="text-sm text-indigo-600 hover:text-indigo-500 flex items-center">
+							<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+							</svg>
+							Voltar ao Dashboard
+						</a>
+					</div>
+				</div>
+
+				<!-- Formulário de Nova Avaliação -->
+				<div class="bg-white shadow rounded-lg p-6 mb-8">
+					<h2 class="text-xl font-semibold mb-4">Nova Avaliação</h2>
+					<form
+						hx-post="/htmx/evaluations"
+						hx-target="#evaluation-container"
+						hx-swap="innerHTML"
+						class="space-y-4">
+						<input type="hidden" name="gorilla.csrf.Token" value={ view.CSRFToken(ctx) } />
+						<div>
+							<label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">
+								Prompt Técnico
+							</label>
+							<textarea
+								id="prompt"
+								name="prompt"
+								rows="6"
+								required
+								placeholder="Digite seu prompt técnico aqui... O sistema irá submeter a 5 etapas de estresse para detectar alucinações semânticas."
+								class="w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-indigo-500 focus:border-indigo-500 resize-y"></textarea>
+							<p class="mt-2 text-sm text-gray-500">
+								O protocolo executa: Consulta Inicial → Inversão de Lógica → Confronto Falso → Cálculo de Divergência → Purga e Auditoria
+							</p>
+						</div>
+						<div class="flex items-center space-x-4">
+							<button
+								type="submit"
+								class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+								Iniciar Avaliação
+							</button>
+							<button
+								type="button"
+								hx-get="/evaluations/history"
+								hx-target="#evaluations-list"
+								hx-swap="innerHTML"
+								class="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+								Ver Histórico
+							</button>
+						</div>
+					</form>
+				</div>
+
+				<!-- Container para Status/Resultado da Avaliação -->
+				<div id="evaluation-container"></div>
+
+				<!-- Lista de Avaliações Anteriores -->
+				<div id="evaluations-list"></div>
+
+				<!-- Legenda -->
+				<div class="mt-8 bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
+					<h3 class="font-semibold mb-2">Sobre o Protocolo Elenchus</h3>
+					<ul class="list-disc list-inside space-y-1">
+						<li><strong>Consulta Inicial:</strong> Submissão do prompt técnico primário ao modelo</li>
+						<li><strong>Inversão de Lógica:</strong> Força o modelo a resolver usando paradigma oposto</li>
+						<li><strong>Confronto Falso:</strong> Injeta alegação de falha para testar consistência</li>
+						<li><strong>Cálculo Vetorial:</strong> Compara embeddings (divergência &gt; 25% = alucinação)</li>
+						<li><strong>Purga e Auditoria:</strong> Auditoria em contexto limpo para diagnóstico final</li>
+					</ul>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+templ EvaluationResult(eval db.Evaluation, iterations []db.Iteration, audit db.Audit) {
+	<div class="bg-white shadow rounded-lg p-6">
+		<div class="flex items-center justify-between mb-4">
+			<h2 class="text-xl font-semibold">Resultado da Avaliação</h2>
+			<span class="px-3 py-1 rounded-full text-sm font-medium { statusClass(eval.Status) }">
+				{ eval.Status }
+			</span>
+		</div>
+
+		<div class="mb-6">
+			<h3 class="text-lg font-medium text-gray-900 mb-2">Prompt Original</h3>
+			<div class="bg-gray-50 p-4 rounded-md">
+				<pre class="whitespace-pre-wrap text-sm">{ eval.PromptBase }</pre>
+			</div>
+		</div>
+
+		<div class="mb-6 p-4 rounded-md { diagnosisClass(audit.Divergencia) }">
+			<h3 class="text-lg font-medium mb-2">Diagnóstico: { audit.Diagnostico }</h3>
+			<p class="text-sm mb-2">Divergência Vetorial: { fmt.Sprintf("%.2f%%", audit.Divergencia*100) }</p>
+			if audit.Divergencia > 0.25 {
+				<p class="text-sm">
+					<strong>Alucinação Detectada!</strong> A resposta apresenta inconsistências significativas sob estresse interrogatório.
+				</p>
+			} else {
+				<p class="text-sm">
+					<strong>Resposta Consistente.</strong> A solução sustentou o interrogatório sem divergências críticas.
+				</p>
+			}
+		</div>
+
+		<div>
+			<h3 class="text-lg font-medium text-gray-900 mb-2">Iterações do Protocolo</h3>
+			<div class="space-y-4">
+				for _, iter := range iterations {
+					<div class="border rounded-md p-4">
+						<h4 class="font-medium text-indigo-600 mb-2">{ phaseName(iter.Fase) }</h4>
+						<pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">{ iter.Resposta }</pre>
+					</div>
+				}
+			</div>
+		</div>
+
+		<div class="mt-6 text-sm text-gray-500">
+			<p>Criado em: { eval.CreatedAt.Time.Format("2006-01-02 15:04:05") }</p>
+		</div>
+	</div>
+}
+
+func statusClass(status string) string {
+	switch status {
+	case "completed":
+		return "bg-green-100 text-green-800"
+	case "failed":
+		return "bg-red-100 text-red-800"
+	case "processing":
+		return "bg-yellow-100 text-yellow-800"
+	default:
+		return "bg-gray-100 text-gray-800"
+	}
+}
+
+func diagnosisClass(divergence float64) string {
+	if divergence > 0.25 {
+		return "bg-red-50 border border-red-200"
+	}
+	return "bg-green-50 border border-green-200"
+}
+
+func phaseName(phase string) string {
+	names := map[string]string{
+		"inicial":   "1. Consulta Inicial",
+		"inversao":  "2. Inversão de Lógica",
+		"confronto": "3. Confronto Falso",
+		"calculo":   "4. Cálculo de Divergência",
+		"purga":     "5. Purga e Auditoria",
+	}
+	if name, ok := names[phase]; ok {
+		return name
+	}
+	return phase
+}
+
+// SSEContainer é um componente genérico para conexões SSE
+// url: URL do endpoint SSE
+// events: Lista de eventos separados por vírgula (ex: "event1,event2,event3")
+// fallbackURL: URL para polling quando SSE fechar (opcional, vazio = sem polling)
+templ SSEContainer(url string, events string, fallbackURL string) {
+	<div hx-ext="sse" sse-connect={ url } class="sse-container">
+		<div sse-swap={ events } class="sse-content" id="sse-content">
+			{ children... }
+		</div>
+	</div>
+	<script>
+		// DEBUG: Log all SSE events
+		document.body.addEventListener('htmx:sseOpen', function(evt) {
+			console.log('🟢 SSE Opened:', evt.detail);
+		});
+		
+		document.body.addEventListener('htmx:sseMessage', function(evt) {
+			console.log('📩 SSE Message received!');
+			console.log('   Event type:', evt.type);
+			console.log('   Detail:', evt.detail);
+			console.log('   Data:', evt.detail?.data);
+		});
+		
+		document.body.addEventListener('htmx:sseError', function(evt) {
+			console.error('🔴 SSE Error:', evt.detail);
+		});
+		
+		document.body.addEventListener('htmx:sseClose', function(evt) {
+			console.log('🔴 SSE Closed:', evt.detail);
+			// Quando SSE fechar, começa polling do status
+			if (fallbackURL !== "") {
+				const container = evt.target.closest('.sse-container');
+				if (container) {
+					const content = container.querySelector('.sse-content');
+					if (content) {
+						console.log('   🔄 Starting polling to:', fallbackURL);
+						content.removeAttribute('sse-swap');
+						content.setAttribute('hx-get', fallbackURL);
+						content.setAttribute('hx-trigger', 'every 5s');
+						content.setAttribute('hx-swap', 'outerHTML');
+						htmx.trigger(content, 'load');
+					}
+				}
+			}
+		});
+	</script>
+}
+
+// SSEEvaluationContainer é um wrapper type-safe para avaliações
+// evalID: ID da avaliação (validado como string)
+// Eventos válidos: evaluation_progress, evaluation_complete, evaluation_error
+templ SSEEvaluationContainer(evalID string) {
+	@SSEContainer(
+		"/sse?type=evaluation&id=" + evalID,
+		"evaluation_progress,evaluation_complete,evaluation_error",
+		"/evaluations/status/" + evalID,
+	) {
+		<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+			<p class="text-yellow-800">⏳ Iniciando avaliação...</p>
+		</div>
+	}
+}
+
+// Exemplo: Wrapper para notificações em tempo real
+// templ SSENotificationsContainer(userID string) {
+//     @SSEContainer(
+//         "/sse?type=notifications&id=" + userID,
+//         "notification_new,notification_read",
+//         "", // Sem polling
+//         <div class="notifications-container">
+//             <p class="text-gray-500">Aguardando notificações...</p>
+//         </div>,
+//     )
+// }
+
+// Exemplo: Wrapper para chat em tempo real
+// templ SSEChatContainer(roomID string) {
+//     @SSEContainer(
+//         "/sse?type=chat&id=" + roomID,
+//         "message,new_user,typing",
+//         "", // Sem polling
+//         <div class="chat-container">
+//             <p class="text-gray-500">Conectando ao chat...</p>
+//         </div>,
+//     )
+// }
+
+// SSERetrying renders retry status component
+templ SSERetrying(evalID string, retryCount int64, nextRetryAt string) {
+	<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4"
+		hx-get={ "/evaluations/status/" + evalID }
+		hx-trigger="every 5s"
+		hx-swap="outerHTML">
+		<div class="flex items-center">
+			<svg class="w-6 h-6 text-yellow-500 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+			</svg>
+			<h3 class="text-lg font-medium text-yellow-800">Avaliação em Retry</h3>
+		</div>
+		<p class="text-sm text-yellow-700 mt-2">
+			⏳ Aguardando limite de taxa da API (retry #{ retryCount })
+		</p>
+		if nextRetryAt != "" {
+			<p class="text-sm text-yellow-700 mt-1">
+				Próxima tentativa em: <strong>{ nextRetryAt }</strong>
+			</p>
+		}
+		<p class="text-sm text-yellow-600 mt-3">
+			💡 Você pode fechar esta página. O processamento continuará em segundo plano.
+		</p>
+		<div class="mt-4 text-sm text-yellow-600">
+			⏱️ Atualizando automaticamente...
+		</div>
+	</div>
+}
+
+// ActiveEvaluationsList renders list of active/retrying evaluations
+templ ActiveEvaluationsList(evaluations []db.Evaluation) {
+	if len(evaluations) == 0 {
+		<!-- Sem avaliações ativas -->
+	} else {
+		<div class="bg-white shadow rounded-lg p-6 mb-6">
+			<h3 class="text-lg font-semibold mb-4">Avaliações em Andamento</h3>
+			<div class="space-y-4">
+				for _, eval := range evaluations {
+					<div class="border rounded-md p-4 { statusClass(eval.Status) }">
+						<div class="flex items-center justify-between">
+							<div>
+								<p class="font-medium text-gray-900">Avaliação { eval.ID[:8] }...</p>
+								<p class="text-sm text-gray-500 mt-1">
+									Status: <span class="font-medium">{ eval.Status }</span>
+								</p>
+								if eval.ErrorMessage.Valid && eval.ErrorMessage.String != "" {
+									<p class="text-sm text-red-600 mt-1">
+										Erro: { eval.ErrorMessage.String[:100] }...
+									</p>
+								}
+							</div>
+							<a href={ "/htmx/evaluations/" + eval.ID + "/result" }
+								class="text-sm text-indigo-600 hover:text-indigo-500">
+								Ver Detalhes →
+							</a>
+						</div>
+					</div>
+				}
+			</div>
+		</div>
+	}
+}
+
+// SSEProgress renders progress component for SSE
+templ SSEProgress(phase string, progress, total int) {
+	<div class="bg-white shadow rounded-lg p-6">
+		<div class="flex items-center justify-between mb-4">
+			<h3 class="text-lg font-medium">Processando Avaliação</h3>
+			<span class="text-sm text-gray-500">{ progress }/{ total }</span>
+		</div>
+		<div class="mb-4">
+			<div class="flex items-center justify-between text-sm mb-1">
+				<span class="text-gray-600">Fase atual: { phase }</span>
+			</div>
+			<progress class="progress progress-indigo-500 w-full" value={ progress } max={ total }></progress>
+		</div>
+		<div class="text-sm text-gray-500">
+			<p>Conectado via SSE... aguarde a conclusão.</p>
+		</div>
+	</div>
+}
+
+// SSECompleteData holds data for SSEComplete template
+type SSECompleteData struct {
+	EvaluationID    string
+	Diagnosis       string
+	Divergence      float64
+	DivergencePercent string
+	IsHallucination bool
+}
+
+// getCompleteData prepares data for SSEComplete template
+func getCompleteData(evaluationID, diagnosis string, divergence float64) SSECompleteData {
+	return SSECompleteData{
+		EvaluationID:    evaluationID,
+		Diagnosis:       diagnosis,
+		Divergence:      divergence,
+		DivergencePercent: fmt.Sprintf("%.2f", divergence*100),
+		IsHallucination: divergence > 0.25,
+	}
+}
+
+// SSEComplete renders completion component for SSE
+templ SSEComplete(data SSECompleteData) {
+	if data.IsHallucination {
+		<div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+			<div class="flex items-center">
+				<svg class="w-6 h-6 text-orange-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+				</svg>
+				<h3 class="text-lg font-medium text-orange-800">Avaliação Completa!</h3>
+			</div>
+			<p class="text-sm text-orange-800 mt-2">Diagnóstico: { data.Diagnosis }</p>
+			<p class="text-sm text-orange-800">Divergência: { data.DivergencePercent }%</p>
+			<p class="text-sm text-orange-800 mt-2">⚠️ Alucinação detectada!</p>
+			<div class="mt-4"
+				hx-get={ "/htmx/evaluations/" + data.EvaluationID + "/result" }
+				hx-trigger="load"
+				hx-swap="outerHTML">
+				<p class="text-sm text-orange-700">Carregando resultado completo...</p>
+			</div>
+		</div>
+	} else {
+		<div class="bg-green-50 border border-green-200 rounded-lg p-4">
+			<div class="flex items-center">
+				<svg class="w-6 h-6 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+				</svg>
+				<h3 class="text-lg font-medium text-green-800">Avaliação Completa!</h3>
+			</div>
+			<p class="text-sm text-green-800 mt-2">Diagnóstico: { data.Diagnosis }</p>
+			<p class="text-sm text-green-800">Divergência: { data.DivergencePercent }%</p>
+			<p class="text-sm text-green-800 mt-2">✓ Resposta consistente.</p>
+			<div class="mt-4"
+				hx-get={ "/htmx/evaluations/" + data.EvaluationID + "/result" }
+				hx-trigger="load"
+				hx-swap="outerHTML">
+				<p class="text-sm text-green-700">Carregando resultado completo...</p>
+			</div>
+		</div>
+	}
+}
+
+// SSECompleteHTML renders completion as HTML string for SSE
+func SSECompleteHTML(evaluationID, diagnosis string, divergence float64) string {
+	data := getCompleteData(evaluationID, diagnosis, divergence)
+	return RenderSSEComponent(SSEComplete(data))
+}
+
+// SSEError renders error component for SSE
+templ SSEError(errorMsg string) {
+	<div class="bg-red-50 border border-red-200 rounded-lg p-4">
+		<div class="flex items-center">
+			<svg class="w-6 h-6 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+			</svg>
+			<h3 class="text-lg font-medium text-red-800">Erro na Avaliação</h3>
+		</div>
+		<p class="text-sm text-red-700 mt-2">{ errorMsg }</p>
+		<button
+			hx-get="/evaluations"
+			hx-target="#evaluation-container"
+			hx-swap="innerHTML"
+			class="mt-4 text-sm text-red-600 underline hover:text-red-800">
+			Tentar Novamente
+		</button>
+	</div>
+}
+
+// RenderSSEComponent renders a templ component to HTML string for SSE
+func RenderSSEComponent(component templ.Component) string {
+	var buf bytes.Buffer
+	err := component.Render(context.Background(), &buf)
+	if err != nil {
+		return fmt.Sprintf("<!-- Error rendering component: %v -->", err)
+	}
+	return buf.String()
+}
+
+// SSEProgressHTML renders progress as HTML string for SSE
+func SSEProgressHTML(phase string, progress, total int) string {
+	return RenderSSEComponent(SSEProgress(phase, progress, total))
+}
+
+// SSEErrorHTML renders error as HTML string for SSE
+func SSEErrorHTML(errorMsg string) string {
+	return RenderSSEComponent(SSEError(errorMsg))
+}
+
+// SSERetryingHTML renders retry status as HTML string
+func SSERetryingHTML(evalID string, retryCount int64, nextRetryAt string) string {
+	return RenderSSEComponent(SSERetrying(evalID, retryCount, nextRetryAt))
+}
+
+// ActiveEvaluationsListHTML renders active evaluations list
+func ActiveEvaluationsListHTML(evaluations []db.Evaluation) string {
+	return RenderSSEComponent(ActiveEvaluationsList(evaluations))
+}
