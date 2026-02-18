@@ -3,11 +3,12 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
-	"github.com/PauloHFS/goth/internal/logging"
-	"github.com/PauloHFS/goth/internal/metrics"
+	"github.com/PauloHFS/elenchus/internal/logging"
+	"github.com/PauloHFS/elenchus/internal/metrics"
 	"github.com/google/uuid"
 )
 
@@ -16,6 +17,12 @@ type responseWriter struct {
 	status      int
 	size        int
 	wroteHeader bool
+}
+
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
@@ -36,6 +43,27 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
+func isDevelopment() bool {
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = os.Getenv("APP_ENV")
+	}
+	return env == "development" || env == "dev"
+}
+
+func shouldLogRequest(status int) bool {
+	if isDevelopment() {
+		return true
+	}
+
+	switch status {
+	case http.StatusTooManyRequests, http.StatusForbidden:
+		return false
+	default:
+		return true
+	}
+}
+
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -52,8 +80,11 @@ func Logger(next http.Handler) http.Handler {
 			slog.String("request_id", requestID),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
+			slog.String("query", r.URL.RawQuery),
 			slog.String("remote_addr", r.RemoteAddr),
 			slog.String("user_agent", r.UserAgent()),
+			slog.String("referer", r.Header.Get("Referer")),
+			slog.String("content_type", r.Header.Get("Content-Type")),
 		)
 
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
@@ -68,12 +99,18 @@ func Logger(next http.Handler) http.Handler {
 			duration_ms(duration),
 		)
 
-		// Prometheus Metrics
 		metrics.HttpRequestsTotal.WithLabelValues(r.URL.Path, r.Method, strconv.Itoa(rw.status)).Inc()
 
+		if !shouldLogRequest(rw.status) {
+			return
+		}
+
 		level := slog.LevelInfo
-		if rw.status >= 500 {
+		switch {
+		case rw.status >= 500:
 			level = slog.LevelError
+		case rw.status >= 400:
+			level = slog.LevelWarn
 		}
 
 		logging.Get().Log(ctx, level, "request completed", event.Attrs()...)
