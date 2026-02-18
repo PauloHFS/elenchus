@@ -4,47 +4,79 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/PauloHFS/goth/internal/config"
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/logging"
-	"github.com/PauloHFS/goth/internal/mailer"
-	"github.com/PauloHFS/goth/internal/metrics"
-	"github.com/PauloHFS/goth/internal/web"
+	"github.com/PauloHFS/elenchus/internal/config"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/logging"
+	"github.com/PauloHFS/elenchus/internal/mailer"
+	"github.com/PauloHFS/elenchus/internal/metrics"
+	"github.com/PauloHFS/elenchus/internal/service"
+	"github.com/PauloHFS/elenchus/internal/sse"
+)
+
+// Rate limit configuration
+const (
+	MaxConcurrentGeminiJobs = 5  // Gemini free tier: 15 RPM, usamos 5 para segurança
+	MaxConcurrentEmailJobs  = 10 // SMTP geralmente aguenta mais
+	MaxConcurrentGenericJobs = 20
 )
 
 type Processor struct {
-	db      *sql.DB
-	queries *db.Queries
-	logger  *slog.Logger
-	mailer  *mailer.Mailer
-	wg      sync.WaitGroup
+	db            *sql.DB
+	queries       *db.Queries
+	logger        *slog.Logger
+	mailer        *mailer.Mailer
+	broker        *sse.Broker
+	wg            sync.WaitGroup
+	
+	// Semaphores for rate limiting
+	geminiSemaphore   chan struct{}
+	emailSemaphore    chan struct{}
+	genericSemaphore  chan struct{}
 }
 
-func New(cfg *config.Config, dbConn *sql.DB, q *db.Queries, l *slog.Logger) *Processor {
-	return &Processor{
+func New(cfg *config.Config, dbConn *sql.DB, q *db.Queries, l *slog.Logger, broker *sse.Broker) *Processor {
+	p := &Processor{
 		db:      dbConn,
 		queries: q,
 		logger:  l,
 		mailer:  mailer.New(cfg),
+		broker:  broker,
+		
+		// Initialize semaphores
+		geminiSemaphore:   make(chan struct{}, MaxConcurrentGeminiJobs),
+		emailSemaphore:    make(chan struct{}, MaxConcurrentEmailJobs),
+		genericSemaphore:  make(chan struct{}, MaxConcurrentGenericJobs),
 	}
+	
+	return p
 }
 
 func (p *Processor) Start(ctx context.Context) {
 	p.logger.Info("worker started")
+	
+	// Processa jobs normais
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+	
+	// Processa retries de avaliações a cada 30 segundos
+	retryTicker := time.NewTicker(30 * time.Second)
+	defer retryTicker.Stop()
+	
 	for {
 		select {
 		case <-ctx.Done():
 			p.logger.Info("worker signal received: waiting for active jobs to finish")
 			return
 		case <-ticker.C:
-			p.processNext(ctx)
+			p.processNextWithRateLimit(ctx)
+		case <-retryTicker.C:
+			p.processEvaluationRetries(ctx)
 		}
 	}
 }
@@ -52,6 +84,56 @@ func (p *Processor) Start(ctx context.Context) {
 // Wait blocks until all active jobs are finished
 func (p *Processor) Wait() {
 	p.wg.Wait()
+}
+
+// processEvaluationRetries processa avaliações que estavam em retry por rate limit
+func (p *Processor) processEvaluationRetries(ctx context.Context) {
+	p.logger.Info("checking for evaluations to retry")
+
+	// Cria service para buscar avaliações prontas para retry
+	evalService, err := service.NewEvaluationService(p.queries, p.broker)
+	if err != nil {
+		p.logger.Error("failed to create evaluation service for retry check", "error", err)
+		return
+	}
+
+	// Busca avaliações prontas para retry
+	evaluations, err := evalService.GetEvaluationsToRetry(ctx)
+	if err != nil {
+		p.logger.Error("failed to get evaluations to retry", "error", err)
+		return
+	}
+
+	if len(evaluations) == 0 {
+		return
+	}
+
+	p.logger.Info("found evaluations to retry", "count", len(evaluations))
+
+	// Re-enfileira cada avaliação para processamento
+	for _, eval := range evaluations {
+		// Cria novo job para retry
+		jobPayload, _ := json.Marshal(map[string]interface{}{
+			"evaluation_id": eval.ID,
+			"tenant_id":     eval.TenantID,
+			"user_id":       eval.UserID,
+			"prompt":        eval.PromptBase,
+			"is_retry":      true,
+		})
+
+		_, err := p.queries.CreateJob(ctx, db.CreateJobParams{
+			TenantID: sql.NullString{String: eval.TenantID, Valid: true},
+			Type:     "run_evaluation",
+			Payload:  jobPayload,
+			RunAt:    sql.NullTime{Time: time.Now(), Valid: true},
+		})
+		if err != nil {
+			p.logger.Error("failed to create retry job", "evaluation_id", eval.ID, "error", err)
+			continue
+		}
+
+		p.logger.Info("re-queued evaluation for retry", "evaluation_id", eval.ID)
+	}
 }
 
 func (p *Processor) processNext(ctx context.Context) {
@@ -88,6 +170,8 @@ func (p *Processor) processNext(ctx context.Context) {
 		errProcessing = p.handleSendVerificationEmail(ctx, job.Payload)
 	case "process_ai":
 		errProcessing = p.handleProcessAI(ctx, job.Payload)
+	case "run_evaluation":
+		errProcessing = p.handleRunEvaluation(ctx, job.Payload)
 	case "process_webhook":
 		errProcessing = p.handleProcessWebhook(ctx, job.Payload)
 	default:
@@ -137,20 +221,7 @@ func (p *Processor) processNext(ctx context.Context) {
 	event.Add(slog.Float64("duration_ms", float64(duration.Nanoseconds())/1e6))
 
 	p.logger.InfoContext(ctx, "job completed", event.Attrs()...)
-
-	// Notificação em tempo real via SSE
-	if job.TenantID.Valid {
-		// Tenta converter tenant_id para userID se for um número
-		var userID int64
-		if _, err := fmt.Sscanf(job.TenantID.String, "%d", &userID); err != nil {
-			p.logger.DebugContext(ctx, "tenant_id is not a numeric userID, skipping broadcast", "tenant_id", job.TenantID.String)
-		} else if userID > 0 {
-			web.BroadcastToUser(userID, "job_completed", string(job.Type))
-			return
-		}
-	}
-
-	web.Broadcast("job_completed", string(job.Type))
+	// Note: SSE events for evaluations are sent via broker.SendEvaluationProgress/Complete
 }
 
 func (p *Processor) handleSendEmail(ctx context.Context, payload json.RawMessage) error {
@@ -214,6 +285,69 @@ func (p *Processor) handleProcessAI(ctx context.Context, payload json.RawMessage
 	p.logger.InfoContext(ctx, "AI processing started", slog.String("prompt", data.Prompt))
 	// Simular integração com OpenAI/Anthropic
 	time.Sleep(2 * time.Second)
+
+	return nil
+}
+
+func (p *Processor) handleRunEvaluation(ctx context.Context, payload json.RawMessage) error {
+	var data struct {
+		EvaluationID string `json:"evaluation_id"`
+		TenantID     string `json:"tenant_id"`
+		UserID       int64  `json:"user_id"`
+		Prompt       string `json:"prompt"`
+		IsRetry      bool   `json:"is_retry"`
+	}
+
+	if err := json.Unmarshal(payload, &data); err != nil {
+		return fmt.Errorf("failed to unmarshal evaluation payload: %w", err)
+	}
+
+	p.logger.InfoContext(ctx, "starting evaluation protocol",
+		slog.String("evaluation_id", data.EvaluationID),
+		slog.Int64("user_id", data.UserID),
+		slog.Bool("is_retry", data.IsRetry))
+
+	// Criar serviço de avaliação e executar protocolo
+	evalService, err := service.NewEvaluationService(p.queries, p.broker)
+	if err != nil {
+		return fmt.Errorf("failed to create evaluation service: %w", err)
+	}
+
+	// Executar o protocolo de estresse
+	if err := evalService.RunEvaluationProtocol(ctx, data.EvaluationID, data.Prompt); err != nil {
+		// Verifica se é erro de rate limit - não marca como falha, apenas retorna para retry
+		if errors.Is(err, service.ErrRateLimitExceeded) {
+			p.logger.InfoContext(ctx, "evaluation hit rate limit, will retry later",
+				slog.String("evaluation_id", data.EvaluationID),
+				slog.String("error", err.Error()))
+			// Não retorna erro aqui - o job será completado e o retry é agendado via checkpoint
+			return nil
+		}
+
+		// Verifica se é erro de too many retries
+		if errors.Is(err, service.ErrTooManyRetries) {
+			// Atualizar status para falha após muitas tentativas
+			if updateErr := p.queries.UpdateEvaluationStatus(ctx, db.UpdateEvaluationStatusParams{
+				Status: "failed",
+				ID:     data.EvaluationID,
+			}); updateErr != nil {
+				p.logger.ErrorContext(ctx, "failed to update evaluation status to failed after max retries", slog.Any("error", updateErr))
+			}
+			return fmt.Errorf("evaluation failed after max retries: %w", err)
+		}
+
+		// Atualizar status para falha
+		if updateErr := p.queries.UpdateEvaluationStatus(ctx, db.UpdateEvaluationStatusParams{
+			Status: "failed",
+			ID:     data.EvaluationID,
+		}); updateErr != nil {
+			p.logger.ErrorContext(ctx, "failed to update evaluation status to failed", slog.Any("error", updateErr))
+		}
+		return fmt.Errorf("evaluation protocol failed: %w", err)
+	}
+
+	p.logger.InfoContext(ctx, "evaluation protocol completed successfully",
+		slog.String("evaluation_id", data.EvaluationID))
 
 	return nil
 }
