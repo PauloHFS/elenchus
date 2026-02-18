@@ -8,10 +8,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/PauloHFS/goth/internal/contextkeys"
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/view"
-	"github.com/PauloHFS/goth/internal/view/pages"
+	"github.com/PauloHFS/elenchus/internal/contextkeys"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/view"
+	"github.com/PauloHFS/elenchus/internal/view/pages"
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 )

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/smtp"
 
-	"github.com/PauloHFS/goth/internal/config"
+	"github.com/PauloHFS/elenchus/internal/config"
 )
 
 type Mailer struct {

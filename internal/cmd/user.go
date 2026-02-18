@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/PauloHFS/goth/internal/db"
+	"github.com/PauloHFS/elenchus/internal/db"
 	"golang.org/x/crypto/bcrypt"
 )
 

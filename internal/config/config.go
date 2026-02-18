@@ -24,18 +24,18 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		Port:          getEnv("PORT", "8080"),
-		DatabaseURL:   getEnv("DATABASE_URL", "./goth.db"),
+		DatabaseURL:   getEnv("DATABASE_URL", "./elenchus.db"),
 		SMTPHost:      getEnv("SMTP_HOST", "localhost"),
 		SMTPPort:      getEnv("SMTP_PORT", "1025"),
 		SMTPUser:      os.Getenv("SMTP_USER"),
 		SMTPPass:      os.Getenv("SMTP_PASS"),
-		SMTPFrom:      getEnv("SMTP_FROM", "noreply@goth.com"),
+		SMTPFrom:      getEnv("SMTP_FROM", "noreply@elenchus.com"),
 		SessionSecret: os.Getenv("SESSION_SECRET"),
-		Env:           getEnv("APP_ENV", "dev"),
+		Env:           getEnv("ENV", "development"),
 	}
 
 	// Validação Estrita para Produção
-	if cfg.Env == "prod" {
+	if cfg.Env == "production" {
 		if cfg.SMTPPass == "" {
 			return nil, fmt.Errorf("produção: SMTP_PASS é obrigatório")
 		}
@@ -48,7 +48,7 @@ func Load() (*Config, error) {
 	} else {
 		// No dev, se não houver secret, usamos um valor fraco apenas para não quebrar o boot
 		if cfg.SessionSecret == "" {
-			cfg.SessionSecret = "dev-secret-keep-it-simple-but-not-safe"
+			cfg.SessionSecret = "elenchus-dev-secret-not-safe"
 		}
 	}
 
@@ -58,6 +58,17 @@ func Load() (*Config, error) {
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if value, ok := os.LookupEnv(key); ok {
+		var result int
+		fmt.Sscanf(value, "%d", &result)
+		if result > 0 {
+			return result
+		}
 	}
 	return fallback
 }

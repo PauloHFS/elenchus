@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/PauloHFS/goth/internal/contextkeys"
+	"github.com/PauloHFS/elenchus/internal/contextkeys"
 )
 
 func Locale(next http.Handler) http.Handler {

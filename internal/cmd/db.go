@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/PauloHFS/goth/internal/config"
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/logging"
+	"github.com/PauloHFS/elenchus/internal/config"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/logging"
 )
 
 func initDB() (*sql.DB, error) {

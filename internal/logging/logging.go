@@ -50,7 +50,7 @@ func Init() {
 
 	logger = slog.New(handler).With(
 		slog.String("version", version),
-		slog.String("service", "goth-api"),
+		slog.String("service", "elenchus"),
 	)
 
 	slog.SetDefault(logger)

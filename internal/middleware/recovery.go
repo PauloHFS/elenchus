@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"runtime/debug"
 
-	"github.com/PauloHFS/goth/internal/logging"
+	"github.com/PauloHFS/elenchus/internal/logging"
 )
 
 func Recovery(next http.Handler) http.Handler {

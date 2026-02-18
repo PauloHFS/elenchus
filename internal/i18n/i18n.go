@@ -2,7 +2,7 @@ package i18n
 
 import (
 	"context"
-	"github.com/PauloHFS/goth/internal/contextkeys"
+	"github.com/PauloHFS/elenchus/internal/contextkeys"
 )
 
 type Translation struct {

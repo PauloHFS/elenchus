@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/PauloHFS/goth/internal/cmd"
-	"github.com/PauloHFS/goth/web/static/assets"
+	"github.com/PauloHFS/elenchus/internal/cmd"
+	"github.com/PauloHFS/elenchus/web/static/assets"
 	_ "github.com/mattn/go-sqlite3"
 )
 

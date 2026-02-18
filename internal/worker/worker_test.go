@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/PauloHFS/goth/internal/config"
+	"github.com/PauloHFS/elenchus/internal/config"
 )
 
 func TestProcessor_New(t *testing.T) {

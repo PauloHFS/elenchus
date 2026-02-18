@@ -12,17 +12,17 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/PauloHFS/goth/docs"
-	"github.com/PauloHFS/goth/internal/config"
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/logging"
-	"github.com/PauloHFS/goth/internal/middleware"
-	"github.com/PauloHFS/goth/internal/web"
-	"github.com/PauloHFS/goth/internal/webhook"
-	"github.com/PauloHFS/goth/internal/worker"
+	_ "github.com/PauloHFS/elenchus/docs"
+	"github.com/PauloHFS/elenchus/internal/config"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/logging"
+	"github.com/PauloHFS/elenchus/internal/middleware"
+	"github.com/PauloHFS/elenchus/internal/sse"
+	"github.com/PauloHFS/elenchus/internal/web"
+	"github.com/PauloHFS/elenchus/internal/webhook"
+	"github.com/PauloHFS/elenchus/internal/worker"
 	"github.com/alexedwards/scs/sqlite3store"
 	"github.com/alexedwards/scs/v2"
-	"github.com/justinas/nosurf"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/swaggo/http-swagger"
 )
@@ -72,10 +72,13 @@ func RunServer(assetsFS embed.FS) {
 	sessionManager := scs.New()
 	sessionManager.Store = sqlite3store.New(dbConn)
 
+	// Create SSE Broker
+	broker := sse.NewBroker()
+
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	defer cancelWorker()
 
-	w := worker.New(cfg, dbConn, queries, logger)
+	w := worker.New(cfg, dbConn, queries, logger, broker)
 	if err := w.RescueZombies(workerCtx); err != nil {
 		logger.Error("zombie hunter failed", "error", err)
 	}
@@ -85,7 +88,6 @@ func RunServer(assetsFS embed.FS) {
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assetsFS))))
 	mux.Handle("GET /storage/", http.StripPrefix("/storage/", http.FileServer(http.Dir("storage"))))
 	mux.Handle("GET /metrics", promhttp.Handler())
-	mux.HandleFunc("GET /events", web.GlobalSSEHandler)
 	mux.Handle("GET /swagger/", httpSwagger.WrapHandler)
 
 	mux.Handle("POST /webhooks/{source}", webhook.NewHandler(queries))
@@ -134,22 +136,19 @@ func RunServer(assetsFS embed.FS) {
 		SessionManager: sessionManager,
 		Logger:         logger,
 		Config:         cfg,
+		SSEBroker:      broker,
 	})
 
-	csrfHandler := nosurf.New(mux)
-	csrfHandler.SetBaseCookie(http.Cookie{
-		HttpOnly: true,
-		Path:     "/",
-		Secure:   cfg.Env == "prod",
-	})
-
+	// Ordem dos middlewares (de fora para dentro):
+	// Recovery -> Logger -> RateLimit -> SecurityHeaders -> Locale -> Session -> CSRF
+	// Logger vem cedo para capturar TUDO, incluindo falhas CSRF e rate limit
 	handler := middleware.Recovery(
-		middleware.RateLimit(
-			middleware.SecurityHeaders(cfg.Env == "prod")(
-				middleware.Logger(
+		middleware.Logger(
+			middleware.RateLimit(
+				middleware.SecurityHeaders(cfg.Env == "production")(
 					middleware.Locale(
 						sessionManager.LoadAndSave(
-							middleware.InjectCSRF(csrfHandler),
+							middleware.CSRFWithContext(mux),
 						),
 					),
 				),
@@ -176,7 +175,6 @@ func RunServer(assetsFS embed.FS) {
 	<-done
 	logger.Info("server stopping")
 
-	web.Shutdown()
 	cancelWorker()
 	w.Wait()
 

@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/PauloHFS/goth/internal/contextkeys"
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/routes"
+	"github.com/PauloHFS/elenchus/internal/contextkeys"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/routes"
 	"github.com/alexedwards/scs/v2"
 )
 

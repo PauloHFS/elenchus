@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/PauloHFS/goth/internal/db"
-	"github.com/PauloHFS/goth/internal/validator"
+	"github.com/PauloHFS/elenchus/internal/db"
+	"github.com/PauloHFS/elenchus/internal/validator"
 )
 
 type webhookInput struct {

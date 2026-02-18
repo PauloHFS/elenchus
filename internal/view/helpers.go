@@ -2,7 +2,7 @@ package view
 
 import (
 	"context"
-	"github.com/PauloHFS/goth/internal/contextkeys"
+	"github.com/PauloHFS/elenchus/internal/contextkeys"
 )
 
 // CSRFToken retorna o token do contexto
