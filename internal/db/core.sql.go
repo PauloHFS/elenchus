@@ -23,6 +23,22 @@ func (q *Queries) CompleteJob(ctx context.Context, id int64) error {
 	return err
 }
 
+const countEvaluations = `-- name: CountEvaluations :one
+SELECT COUNT(*) FROM evaluations WHERE tenant_id = ? AND user_id = ?
+`
+
+type CountEvaluationsParams struct {
+	TenantID string `json:"tenant_id"`
+	UserID   int64  `json:"user_id"`
+}
+
+func (q *Queries) CountEvaluations(ctx context.Context, arg CountEvaluationsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countEvaluations, arg.TenantID, arg.UserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUsers = `-- name: CountUsers :one
 SELECT COUNT(*) FROM users WHERE tenant_id = ?
 `
@@ -32,6 +48,105 @@ func (q *Queries) CountUsers(ctx context.Context, tenantID string) (int64, error
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const createAudit = `-- name: CreateAudit :one
+INSERT INTO audits (id, evaluation_id, divergencia, diagnostico) 
+VALUES (?, ?, ?, ?) RETURNING id, evaluation_id, divergencia, diagnostico, created_at
+`
+
+type CreateAuditParams struct {
+	ID           string  `json:"id"`
+	EvaluationID string  `json:"evaluation_id"`
+	Divergencia  float64 `json:"divergencia"`
+	Diagnostico  string  `json:"diagnostico"`
+}
+
+func (q *Queries) CreateAudit(ctx context.Context, arg CreateAuditParams) (Audit, error) {
+	row := q.db.QueryRowContext(ctx, createAudit,
+		arg.ID,
+		arg.EvaluationID,
+		arg.Divergencia,
+		arg.Diagnostico,
+	)
+	var i Audit
+	err := row.Scan(
+		&i.ID,
+		&i.EvaluationID,
+		&i.Divergencia,
+		&i.Diagnostico,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createEvaluation = `-- name: CreateEvaluation :one
+INSERT INTO evaluations (id, tenant_id, user_id, prompt_base, status) 
+VALUES (?, ?, ?, ?, ?) RETURNING id, tenant_id, user_id, prompt_base, status, idempotency_key, error_message, retry_count, created_at
+`
+
+type CreateEvaluationParams struct {
+	ID         string `json:"id"`
+	TenantID   string `json:"tenant_id"`
+	UserID     int64  `json:"user_id"`
+	PromptBase string `json:"prompt_base"`
+	Status     string `json:"status"`
+}
+
+func (q *Queries) CreateEvaluation(ctx context.Context, arg CreateEvaluationParams) (Evaluation, error) {
+	row := q.db.QueryRowContext(ctx, createEvaluation,
+		arg.ID,
+		arg.TenantID,
+		arg.UserID,
+		arg.PromptBase,
+		arg.Status,
+	)
+	var i Evaluation
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.UserID,
+		&i.PromptBase,
+		&i.Status,
+		&i.IdempotencyKey,
+		&i.ErrorMessage,
+		&i.RetryCount,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createIteration = `-- name: CreateIteration :one
+INSERT INTO iterations (id, evaluation_id, fase, resposta, embedding) 
+VALUES (?, ?, ?, ?, ?) RETURNING id, evaluation_id, fase, resposta, embedding, created_at
+`
+
+type CreateIterationParams struct {
+	ID           string `json:"id"`
+	EvaluationID string `json:"evaluation_id"`
+	Fase         string `json:"fase"`
+	Resposta     string `json:"resposta"`
+	Embedding    []byte `json:"embedding"`
+}
+
+func (q *Queries) CreateIteration(ctx context.Context, arg CreateIterationParams) (Iteration, error) {
+	row := q.db.QueryRowContext(ctx, createIteration,
+		arg.ID,
+		arg.EvaluationID,
+		arg.Fase,
+		arg.Resposta,
+		arg.Embedding,
+	)
+	var i Iteration
+	err := row.Scan(
+		&i.ID,
+		&i.EvaluationID,
+		&i.Fase,
+		&i.Resposta,
+		&i.Embedding,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const createJob = `-- name: CreateJob :one
@@ -167,6 +282,23 @@ func (q *Queries) FailJob(ctx context.Context, arg FailJobParams) error {
 	return err
 }
 
+const getAuditByEvaluation = `-- name: GetAuditByEvaluation :one
+SELECT id, evaluation_id, divergencia, diagnostico, created_at FROM audits WHERE evaluation_id = ? LIMIT 1
+`
+
+func (q *Queries) GetAuditByEvaluation(ctx context.Context, evaluationID string) (Audit, error) {
+	row := q.db.QueryRowContext(ctx, getAuditByEvaluation, evaluationID)
+	var i Audit
+	err := row.Scan(
+		&i.ID,
+		&i.EvaluationID,
+		&i.Divergencia,
+		&i.Diagnostico,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getEmailVerificationByToken = `-- name: GetEmailVerificationByToken :one
 SELECT email, token, expires_at, created_at FROM email_verifications WHERE token = ? LIMIT 1
 `
@@ -181,6 +313,61 @@ func (q *Queries) GetEmailVerificationByToken(ctx context.Context, token string)
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const getEvaluationByID = `-- name: GetEvaluationByID :one
+SELECT id, tenant_id, user_id, prompt_base, status, idempotency_key, error_message, retry_count, created_at FROM evaluations WHERE id = ? LIMIT 1
+`
+
+func (q *Queries) GetEvaluationByID(ctx context.Context, id string) (Evaluation, error) {
+	row := q.db.QueryRowContext(ctx, getEvaluationByID, id)
+	var i Evaluation
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.UserID,
+		&i.PromptBase,
+		&i.Status,
+		&i.IdempotencyKey,
+		&i.ErrorMessage,
+		&i.RetryCount,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getIterationsByEvaluation = `-- name: GetIterationsByEvaluation :many
+SELECT id, evaluation_id, fase, resposta, embedding, created_at FROM iterations WHERE evaluation_id = ? ORDER BY created_at ASC
+`
+
+func (q *Queries) GetIterationsByEvaluation(ctx context.Context, evaluationID string) ([]Iteration, error) {
+	rows, err := q.db.QueryContext(ctx, getIterationsByEvaluation, evaluationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Iteration
+	for rows.Next() {
+		var i Iteration
+		if err := rows.Scan(
+			&i.ID,
+			&i.EvaluationID,
+			&i.Fase,
+			&i.Resposta,
+			&i.Embedding,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getPasswordResetByToken = `-- name: GetPasswordResetByToken :one
@@ -269,6 +456,58 @@ func (q *Queries) IsJobProcessed(ctx context.Context, jobID int64) (int64, error
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const listEvaluationsPaginated = `-- name: ListEvaluationsPaginated :many
+SELECT id, tenant_id, user_id, prompt_base, status, idempotency_key, error_message, retry_count, created_at FROM evaluations 
+WHERE tenant_id = ? AND user_id = ? 
+ORDER BY created_at DESC 
+LIMIT ? OFFSET ?
+`
+
+type ListEvaluationsPaginatedParams struct {
+	TenantID string `json:"tenant_id"`
+	UserID   int64  `json:"user_id"`
+	Limit    int64  `json:"limit"`
+	Offset   int64  `json:"offset"`
+}
+
+func (q *Queries) ListEvaluationsPaginated(ctx context.Context, arg ListEvaluationsPaginatedParams) ([]Evaluation, error) {
+	rows, err := q.db.QueryContext(ctx, listEvaluationsPaginated,
+		arg.TenantID,
+		arg.UserID,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Evaluation
+	for rows.Next() {
+		var i Evaluation
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.UserID,
+			&i.PromptBase,
+			&i.Status,
+			&i.IdempotencyKey,
+			&i.ErrorMessage,
+			&i.RetryCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUsersPaginated = `-- name: ListUsersPaginated :many
@@ -373,6 +612,20 @@ WHERE status = 'processing' AND updated_at < datetime('now', '-5 minutes')
 
 func (q *Queries) RescueZombies(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, rescueZombies)
+	return err
+}
+
+const updateEvaluationStatus = `-- name: UpdateEvaluationStatus :exec
+UPDATE evaluations SET status = ? WHERE id = ?
+`
+
+type UpdateEvaluationStatusParams struct {
+	Status string `json:"status"`
+	ID     string `json:"id"`
+}
+
+func (q *Queries) UpdateEvaluationStatus(ctx context.Context, arg UpdateEvaluationStatusParams) error {
+	_, err := q.db.ExecContext(ctx, updateEvaluationStatus, arg.Status, arg.ID)
 	return err
 }
 

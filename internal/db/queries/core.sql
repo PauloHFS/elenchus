@@ -91,3 +91,36 @@ DELETE FROM email_verifications WHERE email = ?;
 
 -- name: VerifyUser :exec
 UPDATE users SET is_verified = TRUE WHERE email = ?;
+
+-- name: CreateEvaluation :one
+INSERT INTO evaluations (id, tenant_id, user_id, prompt_base, status) 
+VALUES (?, ?, ?, ?, ?) RETURNING *;
+
+-- name: GetEvaluationByID :one
+SELECT * FROM evaluations WHERE id = ? LIMIT 1;
+
+-- name: UpdateEvaluationStatus :exec
+UPDATE evaluations SET status = ? WHERE id = ?;
+
+-- name: CreateIteration :one
+INSERT INTO iterations (id, evaluation_id, fase, resposta, embedding) 
+VALUES (?, ?, ?, ?, ?) RETURNING *;
+
+-- name: GetIterationsByEvaluation :many
+SELECT * FROM iterations WHERE evaluation_id = ? ORDER BY created_at ASC;
+
+-- name: CreateAudit :one
+INSERT INTO audits (id, evaluation_id, divergencia, diagnostico) 
+VALUES (?, ?, ?, ?) RETURNING *;
+
+-- name: GetAuditByEvaluation :one
+SELECT * FROM audits WHERE evaluation_id = ? LIMIT 1;
+
+-- name: ListEvaluationsPaginated :many
+SELECT * FROM evaluations 
+WHERE tenant_id = ? AND user_id = ? 
+ORDER BY created_at DESC 
+LIMIT ? OFFSET ?;
+
+-- name: CountEvaluations :one
+SELECT COUNT(*) FROM evaluations WHERE tenant_id = ? AND user_id = ?;

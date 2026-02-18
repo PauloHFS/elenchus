@@ -1,6 +1,6 @@
 PRAGMA foreign_keys = ON;
 
--- 1. Tenants & Settings
+-- Tenants & Settings
 CREATE TABLE IF NOT EXISTS tenants (
     id TEXT PRIMARY KEY,    -- subdomínio (ex: 'acme')
     name TEXT NOT NULL,
@@ -8,13 +8,13 @@ CREATE TABLE IF NOT EXISTS tenants (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. RBAC Roles
+-- RBAC Roles
 CREATE TABLE IF NOT EXISTS roles (
     id TEXT PRIMARY KEY, -- 'admin', 'user'
     permissions JSON NOT NULL -- ['read', 'write']
 );
 
--- 3. Users
+-- Users
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -27,9 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE(tenant_id, email)
 );
 
--- (Outras tabelas...)
-
--- 9. Email Verification
+-- Email Verification
 CREATE TABLE IF NOT EXISTS email_verifications (
     email TEXT NOT NULL PRIMARY KEY,
     token TEXT NOT NULL,
@@ -37,7 +35,7 @@ CREATE TABLE IF NOT EXISTS email_verifications (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Sessions (SCS)
+-- Sessions (SCS)
 CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     data BLOB NOT NULL,
@@ -45,7 +43,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expiry);
 
--- 5. Async Jobs (Queue)
+-- Async Jobs (Queue)
 CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id TEXT REFERENCES tenants(id),
@@ -68,7 +66,7 @@ CREATE TABLE IF NOT EXISTS processed_jobs (
     processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- 7. Webhooks (Ingestion Audit)
+-- Webhooks (Ingestion Audit)
 CREATE TABLE IF NOT EXISTS webhooks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,      -- ex: 'stripe', 'github'
@@ -79,19 +77,7 @@ CREATE TABLE IF NOT EXISTS webhooks (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. FTS Content
-CREATE TABLE IF NOT EXISTS posts (
-    id INTEGER PRIMARY KEY,
-    tenant_id TEXT NOT NULL REFERENCES tenants(id),
-    user_id INTEGER NOT NULL REFERENCES users(id),
-    title TEXT NOT NULL,
-    content TEXT NOT NULL
-);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS posts_idx USING fts5(title, content, content='posts', content_rowid='id');
--- (Triggers aqui...)
-
--- 8. Password Resets
+-- Password Resets
 CREATE TABLE IF NOT EXISTS password_resets (
     email TEXT NOT NULL,
     token_hash TEXT NOT NULL PRIMARY KEY,
@@ -99,16 +85,38 @@ CREATE TABLE IF NOT EXISTS password_resets (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
-DROP TRIGGER IF EXISTS posts_ai;
-CREATE TRIGGER posts_ai AFTER INSERT ON posts BEGIN
-  INSERT INTO posts_idx(rowid, title, content) VALUES (new.id, new.title, new.content);
-END;
-DROP TRIGGER IF EXISTS posts_ad;
-CREATE TRIGGER posts_ad AFTER DELETE ON posts BEGIN
-  INSERT INTO posts_idx(posts_idx, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
-END;
-DROP TRIGGER IF EXISTS posts_au;
-CREATE TRIGGER posts_au AFTER UPDATE ON posts BEGIN
-  INSERT INTO posts_idx(posts_idx, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
-  INSERT INTO posts_idx(rowid, title, content) VALUES(new.id, new.title, new.content);
-END;
+
+-- Elenchus: Evaluations
+CREATE TABLE IF NOT EXISTS evaluations (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    prompt_base TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'processing',
+    idempotency_key TEXT,
+    error_message TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_evaluations_idempotency ON evaluations(idempotency_key);
+
+-- Elenchus: Iterations
+CREATE TABLE IF NOT EXISTS iterations (
+    id TEXT PRIMARY KEY,
+    evaluation_id TEXT NOT NULL REFERENCES evaluations(id) ON DELETE CASCADE,
+    fase TEXT NOT NULL,
+    resposta TEXT NOT NULL,
+    embedding BLOB,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_iterations_eval ON iterations(evaluation_id);
+
+-- Elenchus: Audits
+CREATE TABLE IF NOT EXISTS audits (
+    id TEXT PRIMARY KEY,
+    evaluation_id TEXT NOT NULL REFERENCES evaluations(id) ON DELETE CASCADE,
+    divergencia REAL NOT NULL,
+    diagnostico TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_audits_eval ON audits(evaluation_id);

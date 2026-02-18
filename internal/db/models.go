@@ -10,11 +10,55 @@ import (
 	"time"
 )
 
+type Audit struct {
+	ID           string       `json:"id"`
+	EvaluationID string       `json:"evaluation_id"`
+	Divergencia  float64      `json:"divergencia"`
+	Diagnostico  string       `json:"diagnostico"`
+	CreatedAt    sql.NullTime `json:"created_at"`
+}
+
 type EmailVerification struct {
 	Email     string       `json:"email"`
 	Token     string       `json:"token"`
 	ExpiresAt time.Time    `json:"expires_at"`
 	CreatedAt sql.NullTime `json:"created_at"`
+}
+
+type Evaluation struct {
+	ID             string         `json:"id"`
+	TenantID       string         `json:"tenant_id"`
+	UserID         int64          `json:"user_id"`
+	PromptBase     string         `json:"prompt_base"`
+	Status         string         `json:"status"`
+	IdempotencyKey sql.NullString `json:"idempotency_key"`
+	ErrorMessage   sql.NullString `json:"error_message"`
+	RetryCount     int64          `json:"retry_count"`
+	CreatedAt      sql.NullTime   `json:"created_at"`
+}
+
+type EvaluationCheckpoint struct {
+	EvaluationID         string          `json:"evaluation_id"`
+	CurrentPhase         string          `json:"current_phase"`
+	Messages             json.RawMessage `json:"messages"`
+	EmbeddingInicial     []byte          `json:"embedding_inicial"`
+	EmbeddingConfronto   []byte          `json:"embedding_confronto"`
+	DivergenciaCalculada sql.NullFloat64 `json:"divergencia_calculada"`
+	DiagnosticoFinal     sql.NullString  `json:"diagnostico_final"`
+	RetryCount           int64           `json:"retry_count"`
+	LastRetryAt          sql.NullTime    `json:"last_retry_at"`
+	NextRetryAt          sql.NullTime    `json:"next_retry_at"`
+	CreatedAt            sql.NullTime    `json:"created_at"`
+	UpdatedAt            sql.NullTime    `json:"updated_at"`
+}
+
+type Iteration struct {
+	ID           string       `json:"id"`
+	EvaluationID string       `json:"evaluation_id"`
+	Fase         string       `json:"fase"`
+	Resposta     string       `json:"resposta"`
+	Embedding    []byte       `json:"embedding"`
+	CreatedAt    sql.NullTime `json:"created_at"`
 }
 
 type Job struct {
@@ -37,19 +81,6 @@ type PasswordReset struct {
 	TokenHash string       `json:"token_hash"`
 	ExpiresAt time.Time    `json:"expires_at"`
 	CreatedAt sql.NullTime `json:"created_at"`
-}
-
-type Post struct {
-	ID       int64  `json:"id"`
-	TenantID string `json:"tenant_id"`
-	UserID   int64  `json:"user_id"`
-	Title    string `json:"title"`
-	Content  string `json:"content"`
-}
-
-type PostsIdx struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
 }
 
 type ProcessedJob struct {

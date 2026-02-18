@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/PauloHFS/goth/migrations"
+	"github.com/PauloHFS/elenchus/migrations"
 )
 
 // RunMigrations executa todos os arquivos .sql do FS embutido em ordem alfabética.
